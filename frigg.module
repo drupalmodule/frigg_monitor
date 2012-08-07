@@ -1,0 +1,578 @@
+<?php
+
+require_once('./sites/all/modules/frigg_monitor/includes/s3_class.inc.php');
+require_once('./sites/all/modules/frigg_monitor/includes/frigg.class.php');
+
+#####################################
+## Dashboard
+#####################################
+function frigg_monitor_dashboard() {
+  $FriggMonitor = new frigg_monitor();
+  $Domain=$_SERVER['SERVER_NAME'];
+
+  $header = array(
+  array('data' => t('Server')),
+  array('data' => t('Hits, BadIPs, Queries')),
+  array('data' => t('Current Load')),
+);
+
+  $HostStatus = array("OK", "W", "C", "UN");
+  $PollerObject=get_output_template();
+
+  foreach ($PollerObject -> Hosts as $NagiosHost) {
+    $HostID=$NagiosHost->HostID;
+    $ServerName = $NagiosHost->HostName;
+    $ServerStatus = $HostStatus[$NagiosHost->HostStatus];
+    $ServiceCount = $NagiosHost->ServiceCount_Total;
+    $ServiceOK = $NagiosHost->ServiceCount_OK;
+    $ServiceWarn = $NagiosHost->ServiceCount_Warn;
+    $ServiceFail = $NagiosHost->ServiceCount_Fail;
+
+  $ServerTemplateOutput=$FriggMonitor->frigg_server_summary($ServerName, $ServerStatus, $ServiceCount, $ServiceOK, $ServiceWarn, $ServiceFail);
+  $HostNagiosProphecyLink="<a href=\"http://$Domain/frigg/graph/$ServerName\">";
+  $HostNagiosHTTP="http://nagiosadmin:biggles@rx-nagios.kungfootek.net/nagiosgraph/cgi-bin/showgraph.cgi?host=$ServerName&service=HTTP&db=time,data&geom=400x75";
+  $HostNagiosProphecy="http://rx-nagios.kungfootek.net/nagiosgraph/cgi-bin/showgraph.cgi?host=$ServerName&service=Prophecy&db=ProphecyFull,ApacheHits&db=ProphecyFull,BadIps&db=ProphecyFull,Queries&geom=500x75";
+  $HostNagiosLOAD="http://nagiosadmin:biggles@rx-nagios.kungfootek.net/nagiosgraph/cgi-bin/showgraph.cgi?host=$ServerName&service=Current%20Load&db=load5,data&db=load1,data&geom=400x90";
+
+  $rows[]= array(
+//  array('data' => $ServerNameStatusOutput),
+  array('data' => $ServerTemplateOutput),
+  array('data' => "$HostNagiosProphecyLink<img src=\"$HostNagiosProphecy\" border=0></a>"),
+  array('data' => "<img src=\"$HostNagiosLOAD\">"),
+  );
+} unset($NagiosHost);
+
+$output = theme('table', array('header' => $header, 'rows' => $rows));
+  return $output;
+}
+
+
+#####################################
+## Monitor Host List
+#####################################
+function frigg_monitor_hosts_list() {
+  $Domain=$_SERVER['SERVER_NAME'];
+  $ServerID=arg(2);
+
+  if (!isset($ServerID)) {  // If the Host hasn't been selected show all hosts - Else, Show detail on selected host.
+
+
+  $HostStatus = array("OK", "W", "C", "UN");
+  $PollerObject=get_output_template();
+
+  $header = array(
+    array('data' => t('Server Name')),
+    array('data' => t('Status')),
+    array('data' => t('Services')),
+    array('data' => t('OK')),
+    array('data' => t('Warning')),
+    array('data' => t('Failed')),
+);
+
+  foreach ($PollerObject -> Hosts as $NagiosHost) {
+  $HostID=$NagiosHost->HostID;
+  $ServerName = $NagiosHost->HostName;
+  $ServerStatus = $HostStatus[$NagiosHost->HostStatus];
+  $ServiceCount = $NagiosHost->ServiceCount_Total;
+  $ServiceOK = $NagiosHost->ServiceCount_OK;
+  $ServiceWarn = $NagiosHost->ServiceCount_Warn;
+  $ServiceFail = $NagiosHost->ServiceCount_Fail;
+
+  //  Later these should be modified by CSS.
+  if ($ServerStatus == "OK") {
+    $ServerStatusOutput="<font color=green>$ServerStatus</font>";
+    }
+    else {
+      $ServerStatusOutput="<font color=red>$ServerStatus</font>";
+    }
+
+    $ServiceOKOutput="<font color=green>$ServiceOK</font>";
+    $ServiceWarnOutput="<font color=orange>$ServiceWarn</font>";
+    $ServiceFailOutput="<font color=red>$ServiceFail</font>";
+
+    $rows[]= array(
+      array('data' => "<a href=\"http://$Domain/frigg/nlg/$HostID\">$ServerName</a>"),
+      array('data' => "$ServerStatusOutput"),
+      array('data' => "$ServiceCount"),
+      array('data' => "$ServiceOKOutput"),
+      array('data' => "$ServiceWarnOutput"),
+      array('data' => "$ServiceFailOutput"),
+    );
+  }  unset($NagiosHost);
+
+    $output = theme('table', array('header' => $header, 'rows' => $rows));
+//	echo "$output";
+
+  }
+  else { // Show details on Host.
+
+    $NagiosHostObject = new S3_NagiosHost();
+    $ServiceStatusText = variable_get('nagios_service_status_text', Array("OK", "Warning", "Critical", "Unknown"));
+      if (!PingPoller($PollerObject)) { // We notify on error here.
+      }
+
+      foreach ($PollerObject->Hosts as $NagiosHost) {
+        if ($NagiosHost->HostID == $ServerID) {
+          $HostFound = True;
+          $NagiosHostObject = $NagiosHost;
+          unset($NagiosHost);
+        }
+      }
+      $HostStatus = array("OK", "W", "C", "UN");
+      $PollerObject=get_output_template();
+      $header = array(
+        array('data' => t('Service Name')),
+        array('data' => t('Status')),
+        array('data' => t('Status Description / Text')),
+      );
+
+      foreach ($NagiosHostObject->HostServices as $NagiosService) {
+        $ServerName = $NagiosHostObject->HostName;
+        $ServiceName = $NagiosService->ServiceName;
+        $ServiceStatus = $HostStatus[$NagiosHostObject->HostStatus];
+        $ServiceText = $NagiosService->CheckResult;
+
+        if ($ServiceStatus == "OK") { // Later these should be modified by a Class.
+          $ServiceStatusOutput="<font color=green>$ServiceStatus</font>";
+        }
+        else {
+          $ServiceStatusOutput="<font color=red>$ServiceStatus</font>";
+        }
+        $ServerNameHost=$_SERVER['SERVER_NAME'];
+        $ServerNameOutput="<a href=\"http://$ServerNameHost/frigg/nlg/\">$ServerName</a>";
+
+        if (!isset($ServiceName) or $ServiceName != "Total Processes") {
+          $rows[]= array(
+          array('data' => "$ServiceName</a>"),
+          array('data' => "$ServiceStatusOutput"),
+          array('data' => "$ServiceText"),
+          );
+        }
+        unset($NagiosService);
+      }
+      $output = theme('table', array('header' => $header, 'rows' => $rows, 'caption' => $ServerNameOutput));
+      return $output;
+  }
+  return $output;
+}
+
+#############################
+## Admin
+#############################
+function frigg_monitor_admin() {
+  $form = array();
+
+  $form['general'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('General'),
+    '#collapsible' => TRUE,
+    '#description' => t('General Settings')
+  );
+
+  $form['general']['frigg_monitor_serverfeed_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Nagios Service Feed URL'),
+    '#default_value' => variable_get('frigg_monitor_serverfeed_url', 'Enter your Url'), // Default value is empty
+    '#size' => 50,
+    '#maxlength' => 254,
+    '#description' => t("Nagios Service Feed URL with a configured nagios instance that will allow connections from this server"),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_clientadminemail'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Admin email address'),
+    '#default_value' => variable_get('frigg_monitor_clientadminemail', ''), // Default value is empty
+    '#size' => 50,
+    '#maxlength' => 254,
+    '#description' => t("Email you want to be displayed to contact the administrator"),
+  );
+
+  $form['general']['frigg_monitor_clientcompanylogo'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Path to logo'),
+    '#default_value' => variable_get('frigg_monitor_clientcompanylogo', ''), // Default value is empty
+    '#size' => 50,
+    '#maxlength' => 254,
+    '#description' => t("Path to logo, e.g., sites/default/files/logo.png"),
+  );
+
+  $form['general']['frigg_monitor_clientdateformat'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Client date format'),
+    '#default_value' => variable_get('frigg_monitor_clientdateformat', 'd/m/Y H:i:s'),
+    '#size' => 15,
+    '#maxlength' => 25,
+    '#description' => t("PHP style formatting string to use to pass to the date() function"),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_clientenablecaching'] = array(
+    '#type' => 'radios',
+    '#title' => t('Enable Caching'),
+    '#default_value' => variable_get('frigg_monitor_clientenablecaching', '1'),
+    '#options' => array(t('1'), t('0')),
+    '#description' => t('1 to enable caching, 0 to disable caching'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_serverfeed_authenabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable Authentication'),
+    '#default_value' => variable_get('frigg_monitor_serverfeed_authenabled', 0),
+    '#description' => t('Select if user and password authentication are enabled on the server feed'),
+  );
+
+  $form['general']['frigg_monitor_authusername'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Server feed authentication username'),
+    '#default_value' => variable_get('frigg_monitor_authusername', ''),
+    '#size' => 15,
+    '#maxlength' => 25,
+    '#description' => t("Username for server authentication feed. This is only needed when authentication is enabled."),
+  );
+
+  $form['general']['frigg_monitor_authpassword'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Server feed authentication password'),
+    '#default_value' => variable_get('frigg_monitor_authpassword', ''),
+    '#size' => 15,
+    '#maxlength' => 25,
+    '#description' => t("Password for server authentication feed. This is only needed when authentication is enabled."),
+  );
+
+  $form['general']['frigg_monitor_clientcachettl'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cache data TTL'),
+    '#default_value' => variable_get('frigg_monitor_clientcachettl', '60'),
+    '#size' => 2,
+    '#maxlength' => 8,
+    '#description' => t("How long should cached data be saved for (in seconds)"),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_refreshrate'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Refresh rate'),
+    '#default_value' => variable_get('frigg_monitor_refreshrate', '60'),
+    '#size' => 3,
+    '#maxlength' => 6,
+    '#description' => t("How often should the page be refreshed (in seconds)"),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_ok_short'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Short name for full working status'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_ok_short', 'OK'),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t('What should the 1 or 2 character short text be when the system status is running perfect (e.g., OK)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_warn_short'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Short name for warning status'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_warn_short', 'W'),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t('What should the 1 or 2 character short text be when the system status is running below the warning threshold (e.g., W)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_critical_short'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Short name for critical status'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_critical_short', 'C'),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t('What should the 1 or 2 character text be when the system status is running below the critical threshold (e.g., C)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_unknown_short'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Short name for unknown status'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_unknown_short', 'U'),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t('What should the 1 or 2 character text be when the system status is not known (e.g., U)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_ok'] = array(
+    '#type' => 'textfield',
+    '#title' => t('System Status OK text'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_ok', 'OK'),
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#description' => t('What should the text be when the system status is running perfect (e.g., OK)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_warning'] = array(
+    '#type' => 'textfield',
+    '#title' => t('System Status Warning text'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_warning', 'Warning'),
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#description' => t('What should the text be when the system status is below normal (e.g., Warning)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_critical'] = array(
+    '#type' => 'textfield',
+    '#title' => t('System Status Critical text'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_critical', 'Critical'),
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#description' => t('What should the text be when the system is experiencing a failure (e.g., Critical)'),
+    '#required' => TRUE,
+  );
+
+  $form['general']['frigg_monitor_nagios_service_status_unknown'] = array(
+    '#type' => 'textfield',
+    '#title' => t('System Status Unknown text'),
+    '#default_value' => variable_get('frigg_monitor_nagios_service_status_unknown', 'Unknown'),
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#description' => t('What should the text be when the system status is unknown (e.g. Unknown)'),
+    '#required' => TRUE,
+  );
+  return system_settings_form($form);
+}
+
+
+
+#####################################
+## Ping Poller - Reaches out to NLG
+#####################################
+function PingPoller(&$PollerObject) {
+
+    $ServerFeed_URL = variable_get('frigg_monitor_serverfeed_url');
+  $ServerFeed_AuthEnabled = variable_get('frigg_monitor_serverfeed_authenabled');
+  $ServerFeed_AuthUsername = variable_get('frigg_monitor_authusername');
+  $ServerFeed_AuthPassword = variable_get('frigg_monitor_authpassword');
+  $Language = variable_get('frigg_monitor_lang', 'en');
+
+  if ($ServerFeed_AuthEnabled == 1) {
+    $ServerFeed_URL = preg_replace("/^http([s]*):\/\/(.+)$/", "http$1://" . $ServerFeed_AuthUsername . ":" . $ServerFeed_AuthPassword . "@$2", $ServerFeed_URL);
+  }
+  elseif ($ServerFeed_AuthEnabled == 2) {
+    if (array_key_exists("PHP_AUTH_USER", $_SERVER) && array_key_exists("PHP_AUTH_PW", $_SERVER)) {
+      $ServerFeed_URL = preg_replace("/^http([s]*):\/\/(.+)$/", "http$1://" . $_SERVER['PHP_AUTH_USER'] . ":" . $_SERVER['PHP_AUTH_PW'] . "@$2", $ServerFeed_URL);
+    }
+  }
+
+  $PollerFeedRaw = file_get_contents($ServerFeed_URL);
+
+  if ($PollerFeedRaw === FALSE) {
+    $PollerObject->LastPollerError = $Language['POLLING_SERVER_DOWN'];
+    return FALSE;
+  }
+  $PollerFeed = explode("!!", $PollerFeedRaw);
+  /**
+  * Now we're left with:
+  * $PollerFeed = Array(
+  *   [0] => **NLGPOLLER <Token header and app name>
+  *   [1] => Feed/X.Y.Z <Version of the feed>
+  *   [2] => hostname.domain.co.uk <Hostname the feed came from>
+  *   [3] => TRUE <Result of the feed processing on the server - TRUE/FALSE>
+  *   [4] => <base64, serialized representation of the NLGPoller class (when [3] == TRUE) > -or- <base64 representation of the feed creation error (when [3] == FALSE) >
+  *   [5] => 2ec761ee83f8769108f6612694831116** <MD5 checksum of the base64 data [4]>
+  *   [6] => NLGPOLLER** <app name and token trailer>
+  * )
+  */
+
+  // SANITY CHECKS ON THE DOWNLOADED FEED //
+  // ==================================== //
+  // First check the base64 data - recalculate the MD5 hash and compare
+  if ($PollerFeed[5] != md5($PollerFeed[4])) {
+    $PollerObject->LastPollerError = variable_get('nlg_polling_checksum_diff', 'Checksum does not match');
+    return FALSE;
+  }
+
+  // Check the server generated the feed OK
+  if ($PollerFeed[3] == "FALSE") {
+    // need to de-crypt the error string
+    $PollerObject->LastPollerError = base64_decode($PollerFeed[4]);
+    return FALSE;
+  }
+
+  // END SANITY CHECKS ON THE DOWNLOADED FEED //
+
+// all OK so far, now need to decrypt and deserialize the class data and check it is a valid class
+$NLGPoller = unserialize(base64_decode($PollerFeed[4]));
+
+  if ($NLGPoller instanceof S3_NagiosPoller) {
+    $PollerObject = $NLGPoller;
+    unset($NLGPoller);
+    unset($PollerFeed);
+    unset($PollerFeedRaw);
+    return True;
+  }
+  else {
+    $PollerObject->LastPollerError = $Language['POLLING_CORRUPT_FEED'];
+    unset($NLGPoller);
+    unset($PollerFeed);
+    unset($PollerFeedRaw);
+    return FALSE;
+    }
+}
+
+#######################
+## Menu
+#######################
+function frigg_menu() {
+
+  $items['admin/settings/frigg'] = array(
+  'title' => 'NLG settings',
+  'description' => 'Configure settings for nlg2',
+  'page callback' => 'drupal_get_form',
+  'page arguments' => array('frigg_monitor_admin'),
+  'access arguments' => array('access administration pages'),
+  'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['frigg'] = array(
+  'title' => 'Frigg Monitor',
+  'description' => 'Frigg Monitor Resource List',
+  'page callback' => 'frigg_monitor_dashboard',
+  'page arguments' => array('view_frigg'),
+  'access arguments' => array('access administration pages'),
+  'access_callback' => TRUE,
+  'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['frigg/dashboard'] = array(
+  'title' => 'Dashboard',
+  'description' => 'Systems Dashboard',
+  'page callback' => 'frigg_monitor_dashboard',
+  'access arguments' => array('view_frigg'),
+  'page arguments' => array('list'),
+  'access_callback' => TRUE,
+  'weight' => 0,
+  'type' => MENU_LOCAL_TASK,
+  );
+ /*
+  $items['frigg/nlg'] = array(
+  'title' => 'NLG',
+  'description' => 'NLG - Server Sumary',
+  'page callback' => 'frigg_monitor_hosts_list',
+  'access arguments' => array('view_frigg'),
+  'page arguments' => array('list'),
+  'access_callback' => TRUE,
+  'weight' => 1,
+  'type' => MENU_LOCAL_TASK,
+  );
+ */
+
+  $items['frigg/nagios'] = array(
+  'title' => 'Nagios',
+  'description' => 'Nagios - Server Detail',
+  'page callback' => 'frigg_monitor_nagios',
+  'access arguments' => array('view_frigg'),
+  'page arguments' => array('list'),
+  'access_callback' => TRUE,
+  'weight' => 2,
+  'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['frigg/cacti'] = array(
+  'title' => 'Cacti',
+  'description' => 'Cacti - Server Sumary',
+  'page callback' => 'frigg_cacti_tree',
+  'access arguments' => array('view_frigg'),
+  'page arguments' => array('list'),
+  'access_callback' => TRUE,
+  'weight' => 3,
+  'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['frigg/graph'] = array(
+    'title' => 'Graphs',
+    'description' => 'NagiosGraphs',
+    'page callback' => 'frigg_nagiosgraph',
+    'access arguments' => array('view_frigg'),
+    'page arguments' => array('list'),
+    'access_callback' => TRUE,
+    'weight' => 4,
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+################################
+## NLG Output Template
+################################
+function get_output_template() {
+  $PollerObject = new S3_NagiosPoller();
+  if (!PingPoller($PollerObject)) {
+    /* We Alert the user here */
+  }
+  //  print_r("$PollerObject");
+  return $PollerObject;
+
+}
+
+#############################
+## Permisissions
+#############################
+function frigg_permission() {
+  return array(
+  'administer frigg' => array(
+  'title' => t('Adminsitrate Frigg'),
+  'description' => t('Admin  Desc')
+  ),
+  'view_frigg' => array(
+  'title' => t('View Frigg'),
+  'description' => t('View Frigg Desc')
+  ),
+  );
+}
+
+#############################
+## Nagios
+#############################
+function frigg_monitor_nagios() {
+  $ServerName = arg(2);
+  // $output = $ServerName;
+  if ( $ServerName == "") {
+    $ServerName = "all";
+  }
+  else {
+    $ServerName = arg(2);
+  }
+
+  $output = "<iframe src=\"http://nagiosadmin:biggles@rx-nagios.kungfootek.net/cgi-bin/nagios3/status.cgi?host=$ServerName\" height=1200px width=1200px></iframe>";
+  return $output;
+}
+
+#############################
+## Nagios Graph
+#############################
+function frigg_nagiosgraph() {
+  $ServerName = arg(2);
+  // $output = $ServerName;
+  if ( $ServerName == "") {
+    $ServerName = "localhost";
+  }
+  else {
+    $ServerName = arg(2);
+  }
+
+  $output = "<iframe src=\"http://nagiosadmin:biggles@rx-nagios.kungfootek.net/nagios3/cgi-bin/show.cgi?host=$ServerName&service=Prophecy&db=ProphecyFull%2CApacheHits&db=ProphecyFull%2CBadIps&db=ProphecyFull%2CConnections&db=ProphecyFull%2CQueries&db=ProphecyFull%2CRXBytes&db=ProphecyFull%2CTXBytes&expand_controls&period=day&expand_period=day&geom=700x200\" height=1200px width=1800px></iframe>";
+  return $output;
+
+}
+
+#############################
+## Cacti Tree
+#############################
+function frigg_cacti_tree() {
+  // http://admin:biggles@rx-nagios.kungfootek.net/cacti/graph_view.php?action=tree&tree_id=1
+  $output = "<iframe src=\"http://nagios:biggles@rx-nagios.kungfootek.net/cacti/graph_view.php?action=preview\" height=1200px width=1200px></iframe>";
+  return $output;
+}

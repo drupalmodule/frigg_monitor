@@ -1,0 +1,26 @@
+####################################################################
+# These two maps cannot coexist.
+
+####################################################################
+
+# Service type: prophecy
+# output:Queries: INT
+/Queries: (\d+)/
+and push @s, [ 'Prophecy',
+                [ 'Queries', COUNTER, $1 ] ];
+
+####################################################################
+
+# Service type: Frigg Prophecy - Full_Monty
+# Queries: 609302030 Connections: 192460732 Bytes_received: 179 Bytes_sent: 558 
+/Queries: (\d+)  Connections: (\d+)  Bytes_received: (\d+)  Bytes_sent: (\d+)/
+and push @s, [ 'Prophecy',
+                [ 'Queries', COUNTER, $1 ],
+                [ 'Connections', COUNTER, $2 ],
+                [ 'Bytes_Received', COUNTER, $3],
+                [ 'Bytes_Sent', COUNTER, $4] ];
+
+
+####################################################################
+
+

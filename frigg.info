@@ -1,0 +1,5 @@
+name = frigg 
+description = "Provide web interface to various server monitor backends"
+core = 7.x
+package = "Monitoring" 
+php = 5.2
